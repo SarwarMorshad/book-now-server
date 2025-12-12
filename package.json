@@ -1,15 +1,23 @@
 {
   "name": "book-now-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend for Book Now - Online Ticket Booking Platform",
   "main": "index.js",
+  "type": "module",
   "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "ticket",
+    "booking",
+    "mern",
+    "express",
+    "mongodb"
+  ],
+  "author": "Shovon",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
@@ -24,5 +32,8 @@
     "mongodb": "^7.0.0",
     "morgan": "^1.10.1",
     "stripe": "^20.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
   }
 }
