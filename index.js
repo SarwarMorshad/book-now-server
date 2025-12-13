@@ -6,9 +6,14 @@ import cookieParser from "cookie-parser";
 import compression from "compression";
 import helmet from "helmet";
 import { connectDB } from "./config/db.js";
+
+// Import routes
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import ticketRoutes from "./routes/ticketRoutes.js";
+import bookingRoutes from "./routes/bookingRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 // Load environment variables
 dotenv.config();
@@ -50,6 +55,14 @@ app.get("/", (req, res) => {
     message: "🚀 Book Now API is running!",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
+    endpoints: {
+      auth: "/api/auth",
+      users: "/api/users",
+      tickets: "/api/tickets",
+      bookings: "/api/bookings",
+      payments: "/api/payments",
+      admin: "/api/admin",
+    },
   });
 });
 
@@ -57,9 +70,9 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/tickets", ticketRoutes);
-// app.use("/api/bookings", bookingRoutes);
-// app.use("/api/users", userRoutes);
-// app.use("/api/payments", paymentRoutes);
+app.use("/api/bookings", bookingRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/admin", adminRoutes);
 
 // 404 Handler
 app.use((req, res) => {
@@ -90,6 +103,7 @@ const startServer = async () => {
     app.listen(PORT, () => {
       console.log(`🚀 Server is running on http://localhost:${PORT}`);
       console.log(`📝 Environment: ${process.env.NODE_ENV}`);
+      console.log(`📚 API Documentation: http://localhost:${PORT}`);
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error);
