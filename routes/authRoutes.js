@@ -1,13 +1,10 @@
 import express from "express";
-import { registerOrLoginUser, getUserProfile } from "../controllers/authController.js";
-import { authenticateToken } from "../middleware/auth.js";
+import { registerOrLoginUser, updateUserProfile } from "../controllers/authController.js";
+import { authenticate } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Public Routes
 router.post("/register-or-login", registerOrLoginUser);
-
-// Protected Routes
-router.get("/profile", authenticateToken, getUserProfile);
+router.patch("/update-profile", authenticate, updateUserProfile);
 
 export default router;

@@ -2,28 +2,23 @@ import express from "express";
 import {
   createBooking,
   getUserBookings,
-  getVendorBookingRequests,
+  getBookingById,
+  getVendorBookings,
   acceptBooking,
   rejectBooking,
-  getBookingById,
 } from "../controllers/bookingController.js";
-import { authenticateToken, isUser, isVendor } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(authenticateToken);
-
 // User routes
-router.post("/", isUser, createBooking);
-router.get("/my-bookings", isUser, getUserBookings);
+router.post("/", authenticate, createBooking);
+router.get("/my-bookings", authenticate, getUserBookings);
+router.get("/:bookingId", authenticate, getBookingById);
 
 // Vendor routes
-router.get("/vendor/requests", isVendor, getVendorBookingRequests);
-router.patch("/:bookingId/accept", isVendor, acceptBooking);
-router.patch("/:bookingId/reject", isVendor, rejectBooking);
-
-// Common routes
-router.get("/:bookingId", getBookingById);
+router.get("/vendor/my-bookings", authenticate, getVendorBookings);
+router.patch("/:bookingId/accept", authenticate, acceptBooking);
+router.patch("/:bookingId/reject", authenticate, rejectBooking);
 
 export default router;

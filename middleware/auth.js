@@ -1,38 +1,39 @@
-import { verifyToken } from "../utils/generateToken.js";
+import jwt from "jsonwebtoken";
 
-// Verify JWT Token
-export const authenticateToken = (req, res, next) => {
+export const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
 
-    if (!token) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
-        message: "Access denied. No token provided.",
+        message: "No token provided",
       });
     }
 
-    const decoded = verifyToken(token);
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (!decoded) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid or expired token.",
-      });
-    }
+    req.user = {
+      userId: decoded.userId || decoded.id, // ← Support both for backward compatibility
+      email: decoded.email,
+      role: decoded.role,
+    };
 
-    req.user = decoded; // Attach user info to request
     next();
   } catch (error) {
+    console.error("Auth error:", error);
     return res.status(401).json({
       success: false,
-      message: "Authentication failed.",
+      message: "Authentication failed",
     });
   }
 };
 
-// Check if user is Admin
+// Export as authenticateToken for compatibility
+export const authenticateToken = authenticate;
+
+// Check if user is admin
 export const isAdmin = (req, res, next) => {
   if (req.user.role !== "admin") {
     return res.status(403).json({
@@ -43,7 +44,7 @@ export const isAdmin = (req, res, next) => {
   next();
 };
 
-// Check if user is Vendor
+// Check if user is vendor
 export const isVendor = (req, res, next) => {
   if (req.user.role !== "vendor") {
     return res.status(403).json({
@@ -54,7 +55,7 @@ export const isVendor = (req, res, next) => {
   next();
 };
 
-// Check if user is User (regular user)
+// Check if user is regular user
 export const isUser = (req, res, next) => {
   if (req.user.role !== "user") {
     return res.status(403).json({
@@ -65,13 +66,15 @@ export const isUser = (req, res, next) => {
   next();
 };
 
-// Check if user is Admin or Vendor
-export const isAdminOrVendor = (req, res, next) => {
-  if (req.user.role !== "admin" && req.user.role !== "vendor") {
-    return res.status(403).json({
-      success: false,
-      message: "Access denied. Admin or Vendor only.",
-    });
-  }
-  next();
+// Authorize multiple roles
+export const authorizeRoles = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied. Required roles: ${roles.join(", ")}`,
+      });
+    }
+    next();
+  };
 };
