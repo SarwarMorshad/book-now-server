@@ -56,15 +56,26 @@ export const addTicket = async (req, res) => {
 };
 
 // Get All Approved Tickets (Public)
+// Get All Approved Tickets (Public)
 export const getAllTickets = async (req, res) => {
   try {
-    const { tickets } = getCollections();
+    const { tickets, users } = getCollections();
     const { from, to, transportType, sort } = req.query;
 
-    // Build filter
+    // Get fraud vendor emails
+    const fraudVendors = await users.find({ isFraud: true }).project({ email: 1 }).toArray();
+    const fraudEmails = fraudVendors.map((v) => v.email);
+
+    // Build filter - exclude hidden and fraud vendor tickets
     const filter = {
       verificationStatus: "approved",
+      $or: [{ isHidden: { $exists: false } }, { isHidden: false }],
     };
+
+    // Exclude fraud vendor tickets
+    if (fraudEmails.length > 0) {
+      filter.vendorEmail = { $nin: fraudEmails };
+    }
 
     if (from) {
       filter.fromLocation = { $regex: from, $options: "i" };
