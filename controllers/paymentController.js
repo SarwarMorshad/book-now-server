@@ -1,56 +1,30 @@
 import { ObjectId } from "mongodb";
-import { getDB } from "../config/db.js";
 import Stripe from "stripe";
+import { getCollections } from "../config/db.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Create payment intent
+// Create Payment Intent
 export const createPaymentIntent = async (req, res) => {
   try {
-    const db = getDB();
-    const { bookingId } = req.body;
+    const { amount } = req.body;
 
-    console.log("Creating payment intent for booking:", bookingId);
-
-    // Get booking details
-    const booking = await db.collection("bookings").findOne({
-      _id: new ObjectId(bookingId),
-    });
-
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking not found",
-      });
-    }
-
-    // Check if booking is accepted
-    if (booking.status !== "accepted") {
+    if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Only accepted bookings can be paid",
+        message: "Invalid amount",
       });
     }
 
-    // Check if user owns this booking
-    if (booking.userId.toString() !== req.user.userId) {
-      return res.status(403).json({
-        success: false,
-        message: "Unauthorized",
-      });
-    }
-
-    // Create Stripe payment intent
+    // Create payment intent with Stripe
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(booking.totalPrice * 100), // Convert to cents
+      amount: Math.round(amount * 100), // Convert to cents
       currency: "usd",
-      metadata: {
-        bookingId: bookingId,
-        userId: req.user.userId,
-      },
+      payment_method_types: ["card"],
     });
-
-    console.log("Payment intent created:", paymentIntent.id);
 
     res.status(200).json({
       success: true,
@@ -66,16 +40,16 @@ export const createPaymentIntent = async (req, res) => {
   }
 };
 
-// Confirm payment
+// Confirm Payment
 export const confirmPayment = async (req, res) => {
   try {
-    const db = getDB();
     const { bookingId, paymentIntentId } = req.body;
+    const { bookings, tickets, transactions } = getCollections();
 
     console.log("Confirming payment for booking:", bookingId);
 
     // Get booking
-    const booking = await db.collection("bookings").findOne({
+    const booking = await bookings.findOne({
       _id: new ObjectId(bookingId),
     });
 
@@ -86,37 +60,46 @@ export const confirmPayment = async (req, res) => {
       });
     }
 
+    // Get ticket info
+    const ticket = await tickets.findOne({
+      _id: new ObjectId(booking.ticketId),
+    });
+
     // Update booking status to paid
-    await db.collection("bookings").updateOne(
+    await bookings.updateOne(
       { _id: new ObjectId(bookingId) },
       {
         $set: {
           status: "paid",
           paymentIntentId: paymentIntentId,
+          paidAt: new Date(),
           updatedAt: new Date(),
         },
       }
     );
 
     // Reduce ticket quantity
-    await db.collection("tickets").updateOne(
-      { _id: booking.ticketId },
+    await tickets.updateOne(
+      { _id: new ObjectId(booking.ticketId) },
       {
         $inc: { quantity: -booking.quantity },
       }
     );
 
-    // Create transaction record
+    // Create transaction record with ticket title
     const transaction = {
       bookingId: new ObjectId(bookingId),
       userId: booking.userId,
+      userEmail: booking.userEmail,
+      ticketId: new ObjectId(booking.ticketId),
+      ticketTitle: ticket?.title || "Unknown Ticket",
       amount: booking.totalPrice,
       paymentIntentId: paymentIntentId,
       status: "completed",
       createdAt: new Date(),
     };
 
-    await db.collection("transactions").insertOne(transaction);
+    await transactions.insertOne(transaction);
 
     console.log("Payment confirmed successfully");
 
@@ -134,21 +117,70 @@ export const confirmPayment = async (req, res) => {
   }
 };
 
-// Get user transactions
+// Get User Transactions (with ticket title lookup)
+// Get User Transactions (with ticket title lookup)
 export const getUserTransactions = async (req, res) => {
   try {
-    const db = getDB();
     const userId = req.user.userId;
+    const { transactions, bookings, tickets } = getCollections();
 
-    const transactions = await db
-      .collection("transactions")
+    console.log("Fetching transactions for userId:", userId);
+
+    // Find by userId (as ObjectId)
+    const userTransactions = await transactions
       .find({ userId: new ObjectId(userId) })
       .sort({ createdAt: -1 })
       .toArray();
 
+    console.log("Found transactions:", userTransactions.length);
+
+    // Populate ticket title for each transaction
+    const populatedTransactions = await Promise.all(
+      userTransactions.map(async (transaction) => {
+        // If ticketTitle already exists and valid, use it
+        if (
+          transaction.ticketTitle &&
+          transaction.ticketTitle !== "Unknown Ticket" &&
+          transaction.ticketTitle !== "N/A"
+        ) {
+          return transaction;
+        }
+
+        // Otherwise, try to get from booking -> ticket
+        try {
+          let ticketTitle = "N/A";
+
+          // Get booking
+          if (transaction.bookingId) {
+            const booking = await bookings.findOne({
+              _id: new ObjectId(transaction.bookingId),
+            });
+
+            if (booking && booking.ticketId) {
+              const ticket = await tickets.findOne({
+                _id: new ObjectId(booking.ticketId),
+              });
+              ticketTitle = ticket?.title || "N/A";
+            }
+          }
+
+          return {
+            ...transaction,
+            ticketTitle,
+          };
+        } catch (err) {
+          console.error("Error fetching ticket title:", err);
+          return {
+            ...transaction,
+            ticketTitle: "N/A",
+          };
+        }
+      })
+    );
+
     res.status(200).json({
       success: true,
-      transactions,
+      transactions: populatedTransactions,
     });
   } catch (error) {
     console.error("Get transactions error:", error);
