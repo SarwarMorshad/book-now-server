@@ -8,9 +8,49 @@ dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Create Payment Intent
+// Create Payment Intent
 export const createPaymentIntent = async (req, res) => {
   try {
-    const { amount } = req.body;
+    const { bookingId } = req.body;
+    const { bookings } = getCollections();
+
+    console.log("Creating payment intent for booking:", bookingId);
+
+    // Validate bookingId
+    if (!bookingId) {
+      return res.status(400).json({
+        success: false,
+        message: "Booking ID is required",
+      });
+    }
+
+    // Get booking
+    const booking = await bookings.findOne({ _id: new ObjectId(bookingId) });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // Check if already paid
+    if (booking.status === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "This booking has already been paid",
+      });
+    }
+
+    // Check if booking is accepted
+    if (booking.status !== "accepted") {
+      return res.status(400).json({
+        success: false,
+        message: "Booking must be accepted before payment",
+      });
+    }
+
+    const amount = booking.totalPrice;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -24,7 +64,13 @@ export const createPaymentIntent = async (req, res) => {
       amount: Math.round(amount * 100), // Convert to cents
       currency: "usd",
       payment_method_types: ["card"],
+      metadata: {
+        bookingId: bookingId,
+        userId: booking.userId.toString(),
+      },
     });
+
+    console.log("Payment intent created:", paymentIntent.id);
 
     res.status(200).json({
       success: true,
