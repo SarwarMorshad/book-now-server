@@ -1,9 +1,10 @@
 import { ObjectId } from "mongodb";
 import { getCollections } from "../config/db.js";
 
-// Add Ticket (Vendor only)
+// Add New Ticket (Vendor)
 export const addTicket = async (req, res) => {
   try {
+    const { tickets } = getCollections();
     const {
       title,
       fromLocation,
@@ -15,37 +16,7 @@ export const addTicket = async (req, res) => {
       departureTime,
       perks,
       imageUrl,
-      vendorName,
-      vendorEmail,
     } = req.body;
-
-    // Validation
-    if (
-      !title ||
-      !fromLocation ||
-      !toLocation ||
-      !transportType ||
-      !price ||
-      !quantity ||
-      !departureDate ||
-      !departureTime
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "All required fields must be provided",
-      });
-    }
-
-    const { tickets, users } = getCollections();
-
-    // Check if vendor is marked as fraud
-    const vendor = await users.findOne({ email: vendorEmail });
-    if (vendor?.isFraud) {
-      return res.status(403).json({
-        success: false,
-        message: "Fraudulent vendors cannot add tickets",
-      });
-    }
 
     const newTicket = {
       title,
@@ -58,8 +29,8 @@ export const addTicket = async (req, res) => {
       departureTime,
       perks: perks || [],
       imageUrl: imageUrl || "",
-      vendorName,
-      vendorEmail,
+      vendorName: req.user.name || "Vendor",
+      vendorEmail: req.user.email,
       verificationStatus: "pending",
       isAdvertised: false,
       createdAt: new Date(),
@@ -67,11 +38,12 @@ export const addTicket = async (req, res) => {
     };
 
     const result = await tickets.insertOne(newTicket);
+    newTicket._id = result.insertedId;
 
     res.status(201).json({
       success: true,
       message: "Ticket added successfully. Waiting for admin approval.",
-      ticketId: result.insertedId,
+      ticket: newTicket,
     });
   } catch (error) {
     console.error("Add ticket error:", error);
@@ -83,15 +55,40 @@ export const addTicket = async (req, res) => {
   }
 };
 
-// Get All Tickets (Public - only approved)
+// Get All Approved Tickets (Public)
 export const getAllTickets = async (req, res) => {
   try {
     const { tickets } = getCollections();
+    const { from, to, transportType, sort } = req.query;
 
-    const allTickets = await tickets
-      .find({ verificationStatus: "approved" })
-      .sort({ createdAt: -1 })
-      .toArray();
+    // Build filter
+    const filter = {
+      verificationStatus: "approved",
+    };
+
+    if (from) {
+      filter.fromLocation = { $regex: from, $options: "i" };
+    }
+
+    if (to) {
+      filter.toLocation = { $regex: to, $options: "i" };
+    }
+
+    if (transportType) {
+      filter.transportType = transportType;
+    }
+
+    // Build sort
+    let sortOption = { createdAt: -1 };
+    if (sort === "price-low") {
+      sortOption = { price: 1 };
+    } else if (sort === "price-high") {
+      sortOption = { price: -1 };
+    } else if (sort === "date") {
+      sortOption = { departureDate: 1 };
+    }
+
+    const allTickets = await tickets.find(filter).sort(sortOption).toArray();
 
     res.status(200).json({
       success: true,
@@ -99,7 +96,7 @@ export const getAllTickets = async (req, res) => {
       tickets: allTickets,
     });
   } catch (error) {
-    console.error("Get tickets error:", error);
+    console.error("Get all tickets error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch tickets",
@@ -108,11 +105,18 @@ export const getAllTickets = async (req, res) => {
   }
 };
 
-// Get Ticket by ID
+// Get Single Ticket by ID (Public)
 export const getTicketById = async (req, res) => {
   try {
-    const { ticketId } = req.params;
     const { tickets } = getCollections();
+    const { ticketId } = req.params;
+
+    if (!ObjectId.isValid(ticketId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ticket ID",
+      });
+    }
 
     const ticket = await tickets.findOne({ _id: new ObjectId(ticketId) });
 
@@ -128,7 +132,7 @@ export const getTicketById = async (req, res) => {
       ticket,
     });
   } catch (error) {
-    console.error("Get ticket error:", error);
+    console.error("Get ticket by ID error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch ticket",
@@ -137,11 +141,11 @@ export const getTicketById = async (req, res) => {
   }
 };
 
-// Get Vendor's Tickets
+// Get Vendor's Own Tickets
 export const getVendorTickets = async (req, res) => {
   try {
-    const vendorEmail = req.user.email;
     const { tickets } = getCollections();
+    const vendorEmail = req.user.email;
 
     const vendorTickets = await tickets.find({ vendorEmail }).sort({ createdAt: -1 }).toArray();
 
@@ -160,16 +164,21 @@ export const getVendorTickets = async (req, res) => {
   }
 };
 
-// Update Ticket (Vendor only - own tickets)
+// Update Ticket (Vendor)
 export const updateTicket = async (req, res) => {
   try {
+    const { tickets } = getCollections();
     const { ticketId } = req.params;
     const vendorEmail = req.user.email;
-    const updateData = req.body;
 
-    const { tickets } = getCollections();
+    if (!ObjectId.isValid(ticketId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ticket ID",
+      });
+    }
 
-    // Check if ticket exists and belongs to vendor
+    // Check if ticket belongs to vendor
     const ticket = await tickets.findOne({ _id: new ObjectId(ticketId) });
 
     if (!ticket) {
@@ -182,16 +191,22 @@ export const updateTicket = async (req, res) => {
     if (ticket.vendorEmail !== vendorEmail) {
       return res.status(403).json({
         success: false,
-        message: "You can only update your own tickets",
+        message: "Not authorized to update this ticket",
       });
     }
 
+    // Check if ticket is rejected
     if (ticket.verificationStatus === "rejected") {
-      return res.status(403).json({
+      return res.status(400).json({
         success: false,
-        message: "Cannot update rejected tickets",
+        message: "Cannot update rejected ticket",
       });
     }
+
+    const updateData = {
+      ...req.body,
+      updatedAt: new Date(),
+    };
 
     // Remove fields that shouldn't be updated
     delete updateData._id;
@@ -200,19 +215,21 @@ export const updateTicket = async (req, res) => {
     delete updateData.verificationStatus;
     delete updateData.isAdvertised;
 
-    const result = await tickets.updateOne(
-      { _id: new ObjectId(ticketId) },
-      {
-        $set: {
-          ...updateData,
-          updatedAt: new Date(),
-        },
-      }
-    );
+    const result = await tickets.updateOne({ _id: new ObjectId(ticketId) }, { $set: updateData });
+
+    if (result.modifiedCount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No changes made",
+      });
+    }
+
+    const updatedTicket = await tickets.findOne({ _id: new ObjectId(ticketId) });
 
     res.status(200).json({
       success: true,
       message: "Ticket updated successfully",
+      ticket: updatedTicket,
     });
   } catch (error) {
     console.error("Update ticket error:", error);
@@ -224,15 +241,21 @@ export const updateTicket = async (req, res) => {
   }
 };
 
-// Delete Ticket (Vendor only - own tickets)
+// Delete Ticket (Vendor)
 export const deleteTicket = async (req, res) => {
   try {
+    const { tickets } = getCollections();
     const { ticketId } = req.params;
     const vendorEmail = req.user.email;
 
-    const { tickets } = getCollections();
+    if (!ObjectId.isValid(ticketId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ticket ID",
+      });
+    }
 
-    // Check if ticket exists and belongs to vendor
+    // Check if ticket belongs to vendor
     const ticket = await tickets.findOne({ _id: new ObjectId(ticketId) });
 
     if (!ticket) {
@@ -245,14 +268,15 @@ export const deleteTicket = async (req, res) => {
     if (ticket.vendorEmail !== vendorEmail) {
       return res.status(403).json({
         success: false,
-        message: "You can only delete your own tickets",
+        message: "Not authorized to delete this ticket",
       });
     }
 
+    // Check if ticket is rejected
     if (ticket.verificationStatus === "rejected") {
-      return res.status(403).json({
+      return res.status(400).json({
         success: false,
-        message: "Cannot delete rejected tickets",
+        message: "Cannot delete rejected ticket",
       });
     }
 
@@ -272,33 +296,7 @@ export const deleteTicket = async (req, res) => {
   }
 };
 
-// Get Latest Tickets (for homepage)
-export const getLatestTickets = async (req, res) => {
-  try {
-    const { tickets } = getCollections();
-
-    const latestTickets = await tickets
-      .find({ verificationStatus: "approved" })
-      .sort({ createdAt: -1 })
-      .limit(8)
-      .toArray();
-
-    res.status(200).json({
-      success: true,
-      count: latestTickets.length,
-      tickets: latestTickets,
-    });
-  } catch (error) {
-    console.error("Get latest tickets error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch latest tickets",
-      error: error.message,
-    });
-  }
-};
-
-// Get Advertised Tickets (for homepage)
+// Get Advertised Tickets (Max 6) - Public
 export const getAdvertisedTickets = async (req, res) => {
   try {
     const { tickets } = getCollections();
@@ -308,12 +306,12 @@ export const getAdvertisedTickets = async (req, res) => {
         verificationStatus: "approved",
         isAdvertised: true,
       })
+      .sort({ createdAt: -1 })
       .limit(6)
       .toArray();
 
     res.status(200).json({
       success: true,
-      count: advertisedTickets.length,
       tickets: advertisedTickets,
     });
   } catch (error) {
@@ -321,7 +319,32 @@ export const getAdvertisedTickets = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch advertised tickets",
-      error: error.message,
+    });
+  }
+};
+
+// Get Latest Tickets (Max 8) - Public
+export const getLatestTickets = async (req, res) => {
+  try {
+    const { tickets } = getCollections();
+
+    const latestTickets = await tickets
+      .find({
+        verificationStatus: "approved",
+      })
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      tickets: latestTickets,
+    });
+  } catch (error) {
+    console.error("Get latest tickets error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch latest tickets",
     });
   }
 };
