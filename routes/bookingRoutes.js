@@ -1,4 +1,5 @@
 import express from "express";
+import { authenticate } from "../middleware/auth.js";
 import {
   createBooking,
   getUserBookings,
@@ -6,21 +7,22 @@ import {
   getVendorBookings,
   acceptBooking,
   rejectBooking,
+  cancelBooking,
+  getBookedSeats,
 } from "../controllers/bookingController.js";
-import { authenticate, isVendor } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// User routes
+// Static routes FIRST (most specific)
 router.post("/", authenticate, createBooking);
 router.get("/my-bookings", authenticate, getUserBookings);
+router.get("/seats/:ticketId", authenticate, getBookedSeats);
+router.get("/vendor/requests", authenticate, getVendorBookings);
 
-// Vendor routes - MUST be BEFORE /:bookingId
-router.get("/vendor", authenticate, isVendor, getVendorBookings);
-router.patch("/:bookingId/accept", authenticate, isVendor, acceptBooking);
-router.patch("/:bookingId/reject", authenticate, isVendor, rejectBooking);
-
-// Dynamic route - MUST be LAST
+// Dynamic routes LAST (least specific)
 router.get("/:bookingId", authenticate, getBookingById);
+router.patch("/:bookingId/accept", authenticate, acceptBooking);
+router.patch("/:bookingId/reject", authenticate, rejectBooking);
+router.patch("/:bookingId/cancel", authenticate, cancelBooking);
 
 export default router;

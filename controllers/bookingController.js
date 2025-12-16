@@ -2,16 +2,18 @@ import { ObjectId } from "mongodb";
 import { getDB } from "../config/db.js";
 
 // Create a new booking
+// Create a new booking  for seat selection
 export const createBooking = async (req, res) => {
   try {
     const db = getDB();
     const userId = req.user.userId;
-    const { ticketId, quantity } = req.body;
+    const { ticketId, quantity, selectedSeats } = req.body; // Added selectedSeats
 
     console.log("=== CREATE BOOKING ===");
     console.log("User ID from token:", userId);
     console.log("Ticket ID:", ticketId);
     console.log("Quantity:", quantity);
+    console.log("Selected Seats:", selectedSeats);
 
     // Validate required fields
     if (!ticketId || !quantity) {
@@ -49,18 +51,40 @@ export const createBooking = async (req, res) => {
       });
     }
 
+    // If bus ticket with seat selection, check if seats are already booked
+    if (ticket.transportType === "bus" && selectedSeats && selectedSeats.length > 0) {
+      // Get all existing bookings for this ticket (not rejected)
+      const existingBookings = await db
+        .collection("bookings")
+        .find({
+          ticketId: new ObjectId(ticketId),
+          status: { $ne: "rejected" },
+          selectedSeats: { $exists: true },
+        })
+        .toArray();
+
+      // Get all booked seats
+      const bookedSeats = existingBookings.flatMap((b) => b.selectedSeats || []);
+
+      // Check if any selected seat is already booked
+      const conflictSeats = selectedSeats.filter((seat) => bookedSeats.includes(seat));
+      if (conflictSeats.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Seats ${conflictSeats.join(", ")} are already booked. Please select different seats.`,
+        });
+      }
+    }
+
     // Calculate total price
     const totalPrice = ticket.price * quantity;
 
-    // Get user details - with proper error handling
+    // Get user details
     const user = await db.collection("users").findOne({
       _id: new ObjectId(userId),
     });
 
-    console.log("User found:", user ? "Yes" : "No");
-
     if (!user) {
-      console.error("User not found for ID:", userId);
       return res.status(404).json({
         success: false,
         message: "User not found. Please logout and login again.",
@@ -73,12 +97,11 @@ export const createBooking = async (req, res) => {
       ticketId: new ObjectId(ticketId),
       quantity,
       totalPrice,
+      selectedSeats: selectedSeats || [], // Store selected seats
       status: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-
-    console.log("Creating booking...");
 
     // Insert booking
     const result = await db.collection("bookings").insertOne(booking);
@@ -105,10 +128,42 @@ export const createBooking = async (req, res) => {
     });
   } catch (error) {
     console.error("Create booking error:", error);
-    console.error("Error details:", error.message);
     res.status(500).json({
       success: false,
       message: "Failed to create booking",
+      error: error.message,
+    });
+  }
+};
+
+// Get booked seats for a ticket
+export const getBookedSeats = async (req, res) => {
+  try {
+    const db = getDB();
+    const { ticketId } = req.params;
+
+    // Get all bookings for this ticket (not rejected)
+    const bookings = await db
+      .collection("bookings")
+      .find({
+        ticketId: new ObjectId(ticketId),
+        status: { $ne: "rejected" },
+        selectedSeats: { $exists: true, $ne: [] },
+      })
+      .toArray();
+
+    // Extract all booked seats
+    const bookedSeats = bookings.flatMap((b) => b.selectedSeats || []);
+
+    res.status(200).json({
+      success: true,
+      bookedSeats,
+    });
+  } catch (error) {
+    console.error("Get booked seats error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch booked seats",
       error: error.message,
     });
   }
@@ -449,6 +504,66 @@ export const rejectBooking = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to reject booking",
+      error: error.message,
+    });
+  }
+};
+
+// Cancel Booking (User can cancel only if status is "pending")
+export const cancelBooking = async (req, res) => {
+  try {
+    const db = getDB();
+    const { bookingId } = req.params;
+    const userId = req.user.userId;
+
+    console.log("=== CANCEL BOOKING ===");
+    console.log("Booking ID:", bookingId);
+    console.log("User ID:", userId);
+
+    // Find the booking
+    const booking = await db.collection("bookings").findOne({
+      _id: new ObjectId(bookingId),
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // Check if the user owns this booking
+    if (booking.userId.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only cancel your own bookings",
+      });
+    }
+
+    // Check if booking is still pending
+    if (booking.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot cancel booking. Current status is "${booking.status}". You can only cancel pending bookings.`,
+      });
+    }
+
+    // Delete the booking
+    await db.collection("bookings").deleteOne({
+      _id: new ObjectId(bookingId),
+    });
+
+    console.log("Booking cancelled successfully");
+
+    res.status(200).json({
+      success: true,
+      message: "Booking cancelled successfully",
+    });
+  } catch (error) {
+    console.error("Cancel booking error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to cancel booking",
       error: error.message,
     });
   }
