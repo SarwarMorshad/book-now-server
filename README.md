@@ -7,6 +7,7 @@
 ![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
 ![Stripe](https://img.shields.io/badge/Stripe-008CDD?style=for-the-badge&logo=stripe&logoColor=white)
 ![JWT](https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
 
 **A robust and secure backend API for online ticket booking platform**
 
@@ -315,6 +316,35 @@ npm test
 ```
 
 ## 📦 Deployment
+
+### Vercel (Recommended) ✨
+
+This project is optimized for deployment on Vercel.
+
+1. **Install Vercel CLI**
+
+   ```bash
+   npm i -g vercel
+   ```
+
+2. **Login to Vercel**
+
+   ```bash
+   vercel login
+   ```
+
+3. **Deploy to production**
+
+   ```bash
+   vercel --prod
+   ```
+
+4. **Set environment variables**
+   - Go to your Vercel dashboard
+   - Navigate to Settings → Environment Variables
+   - Add all required environment variables from `.env`
+
+**Configuration**: The project includes a `vercel.json` file with optimized settings for Express.js deployment.
 
 ### Heroku
 

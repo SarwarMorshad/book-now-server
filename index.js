@@ -30,6 +30,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://book-now-acaca.web.app",
   "https://book-now-acaca.firebaseapp.com",
+  "https://booknowbyshovon.netlify.app",
   process.env.CLIENT_URL,
 ].filter(Boolean);
 
